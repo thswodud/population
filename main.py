@@ -80,4 +80,129 @@ selected_sigungu = st.sidebar.selectbox("시·군·구 선택", sigungu_list)
 # (3) 읍면동 선택
 df_sigungu = df_sido[df_sido[sigungu_col] == selected_sigungu]
 dong_list = sorted(df_sigungu[dong_col].dropna().unique())
-selected_dong = st.sidebar.selectbox("읍·면·동 선택", dong
+selected_dong = st.sidebar.selectbox("읍·면·동 선택", dong_list)
+
+# 선택한 지역의 1개 데이터 행 가져오기
+target_data = df_sigungu[df_sigungu[dong_col] == selected_dong].iloc[0]
+
+# 3. 나이 라벨 리스트 생성 (0세 ~ 100세 이상)
+age_labels = [f"{i}세" for i in range(100)] + ["100세 이상"]
+
+# 4. 남/여 인구수 추출
+male_pop = []
+female_pop = []
+
+
+def safe_int_convert(val):
+    """문자열, 콤마(,) 포함 수치를 안전하게 정수로 변환하는 함수"""
+    if pd.isna(val):
+        return 0
+    val_str = str(val).replace(",", "").strip()
+    try:
+        return int(float(val_str))
+    except ValueError:
+        return 0
+
+
+# 실제 데이터 프레임 컬럼 검색용 맵 생성 (공백/특수문자 예외 처리)
+col_map = {c.replace(" ", ""): c for c in df.columns}
+
+for age in age_labels:
+    m_key = f"남_{age}".replace(" ", "")
+    f_key = f"여_{age}".replace(" ", "")
+
+    male_col = col_map.get(m_key, None)
+    female_col = col_map.get(f_key, None)
+
+    m_val = target_data[male_col] if male_col and male_col in target_data else 0
+    f_val = (
+        target_data[female_col] if female_col and female_col in target_data else 0
+    )
+
+    male_pop.append(safe_int_convert(m_val))
+    female_pop.append(safe_int_convert(f_val))
+
+# 남성 인구수는 왼쪽 배치를 위해 음수로 변환
+male_pop_neg = [-val for val in male_pop]
+
+# 5. Plotly 가로 막대그래프 생성
+fig = go.Figure()
+
+# (1) 남성 막대그래프
+fig.add_trace(
+    go.Bar(
+        y=age_labels,
+        x=male_pop_neg,
+        name="남성",
+        orientation="h",
+        marker=dict(color="#6BAED6"),
+        hoverinfo="text",
+        text=[f"남성 ({age}): {val:,}명" for age, val in zip(age_labels, male_pop)],
+    )
+)
+
+# (2) 여성 막대그래프
+fig.add_trace(
+    go.Bar(
+        y=age_labels,
+        x=female_pop,
+        name="여성",
+        orientation="h",
+        marker=dict(color="#FC9272"),
+        hoverinfo="text",
+        text=[
+            f"여성 ({age}): {val:,}명" for age, val in zip(age_labels, female_pop)
+        ],
+    )
+)
+
+# 최대 인구수 계산 (X축 대칭용)
+max_val = max(max(male_pop), max(female_pop)) if male_pop and female_pop else 100
+x_limit = int(max_val * 1.15)
+
+# 6. 레이아웃 및 Y축 순서 고정
+fig.update_layout(
+    title=dict(
+        text=f"<b>{selected_sido} {selected_sigungu} {selected_dong}</b> 인구 피라미드 ({latest_year}년)",
+        font=dict(size=18),
+        x=0.5,
+        xanchor="center",
+    ),
+    barmode="overlay",
+    bargap=0.1,
+    height=850,
+    margin=dict(l=60, r=40, t=60, b=40),
+    plot_bgcolor="rgba(250,250,250,1)",
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    xaxis=dict(
+        title="인구수 (명)",
+        range=[-x_limit, x_limit],
+        tickvals=[-x_limit // 2, 0, x_limit // 2],
+        ticktext=[
+            f"{abs(x_limit // 2):,}명",
+            "0",
+            f"{abs(x_limit // 2):,}명",
+        ],
+        showgrid=True,
+        gridcolor="#E0E0E0",
+    ),
+    # Y축: 0세가 맨 아래, 100세 이상이 맨 위로 순서 고정
+    yaxis=dict(
+        title="나이",
+        type="category",
+        categoryorder="array",
+        categoryarray=age_labels,
+        showgrid=False,
+    ),
+)
+
+# 차트 출력
+st.plotly_chart(fig, use_container_width=True)
+
+# 요약 카드 출력
+col1, col2, col3 = st.columns(3)
+total_m = sum(male_pop)
+total_f = sum(female_pop)
+col1.metric("총 남성 인구", f"{total_m:,} 명")
+col2.metric("총 여성 인구", f"{total_f:,} 명")
+col3.metric("총 인구수", f"{(total_m + total_f):,} 명")
